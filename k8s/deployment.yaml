@@ -6,7 +6,7 @@ metadata:
   labels:
     app: bulletin-app
 spec:
-  replicas: 1
+  replicas: 2
   revisionHistoryLimit: 3
   strategy:
     type: RollingUpdate
@@ -21,6 +21,13 @@ spec:
       labels:
         app: bulletin-app
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: bulletin-app
       containers:
         - name: app
           image: ruslangilyazov/project-devops-deploy:0.0.1
@@ -35,6 +42,25 @@ spec:
                 name: bulletin-config
             - secretRef:
                 name: bulletin-secret
+          # Важно: envFrom из secret может переопределить datasource из ConfigMap.
+          # Для шага 4 мы жестко задаём SPRING_DATASOURCE_* из ConfigMap,
+          # чтобы rollout/replicas стабильно проходили readiness.
+          env:
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: bulletin-config
+                  key: SPRING_DATASOURCE_URL
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: bulletin-config
+                  key: SPRING_DATASOURCE_USERNAME
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: bulletin-config
+                  key: SPRING_DATASOURCE_PASSWORD
           resources:
             requests:
               cpu: "250m"

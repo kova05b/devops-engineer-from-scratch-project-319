@@ -4,9 +4,18 @@ metadata:
   name: bulletin-config
   namespace: bulletin
 data:
-  SPRING_PROFILES_ACTIVE: "prod"
+  # Для шагов 4 (масштабирование/zero-downtime) нам нужен стабильный старт без
+  # внешней БД. Профиль `dev` использует H2 в памяти и не задаёт postgres driver.
+  SPRING_PROFILES_ACTIVE: "dev"
   MANAGEMENT_SERVER_PORT: "9090"
   STORAGE_S3_BUCKET: "projectdevopsdeploy"
   STORAGE_S3_REGION: "ru-central1"
   STORAGE_S3_ENDPOINT: "https://storage.yandexcloud.net"
+
+  # Для учебного шага 4 поднимаем приложение без внешней БД:
+  # В prod-профиле переопределяем datasource на H2 в памяти.
+  # Здесь это всё равно оставлено, чтобы `deployment.yaml` гарантированно выставлял datasource.
+  SPRING_DATASOURCE_URL: "jdbc:h2:mem:bulletins;DB_CLOSE_DELAY=-1;MODE=PostgreSQL"
+  SPRING_DATASOURCE_USERNAME: "sa"
+  SPRING_DATASOURCE_PASSWORD: ""
 

@@ -176,8 +176,90 @@ cd terraform && terraform output
 - `secret.yaml` — шаблон Secret (без реальных значений)
 - `secret.example.env` — пример env-файла для безопасного создания Secret
 - `deployment.yaml` — Deployment с RollingUpdate, ресурсами и probes
-- `service.yaml` — Service `ClusterIP` для внутреннего трафика
+- `service.yaml` — Service `LoadBalancer` для внешнего и внутреннего доступа
 - `kustomization.yaml` — чтобы применять namespace/configmap/deployment/service одним `kubectl apply -k`
+
+## Scaling, load balancing and zero-downtime releases
+
+Для шага 4 в репозитории уже добавлены:
+
+- масштаб нод в Terraform (`terraform/variables.tf`: `node_count = 2`)
+- `Service` типа `LoadBalancer` для внешнего доступа
+- `PodDisruptionBudget` (`k8s/pdb.yaml`)
+- `HorizontalPodAutoscaler` (`k8s/hpa.yaml`, min=2, max=4)
+- `Deployment` с `replicas: 2` и `RollingUpdate` (`maxUnavailable: 0`) для релизов без простоя
+
+Если приложение неожиданно уходит в `CrashLoopBackOff`, это почти всегда означает, что `bulletin-secret` содержит `SPRING_DATASOURCE_*` (prod PostgreSQL) и переопределяет `ConfigMap`. В этом шаге ниже есть команды, которые пересоздадут `bulletin-secret` под H2 (без внешней БД) и вернут rollout в норму.
+
+### 1) Масштабировать кластер до 2+ нод
+
+```bash
+cd /mnt/c/GIT/devops-engineer-from-scratch-project-319
+make tf-plan
+make tf-apply-auto
+```
+
+Проверка:
+
+```bash
+kubectl get nodes -o wide
+```
+
+Должно быть минимум 2 `Ready` worker-ноды.
+
+### 2) Применить манифесты балансировки и устойчивости
+
+```bash
+make k8s-apply
+make k8s-rollout
+make k8s-status
+make k8s-pdb
+make k8s-hpa
+make k8s-external-ip
+```
+
+Когда у `Service` появится `EXTERNAL-IP`, приложение доступно извне по `http://EXTERNAL-IP/`.
+
+### 3) Проверить rolling update новой версии образа
+
+```bash
+# Подставь свой новый тег
+make k8s-set-image IMAGE=ruslangilyazov/project-devops-deploy:0.0.2
+make k8s-rollout
+kubectl get pods -n bulletin -o wide
+```
+
+### 4) Проверить трафик и отсутствие 5xx
+
+```bash
+for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code}\n" http://EXTERNAL-IP/api/bulletins; done
+```
+
+Ожидаемо: коды `200`/`304` без `5xx` в серии запросов.
+
+### Step 4 result (what is done)
+
+- Worker node group is scaled to 2+ nodes via Terraform (`terraform/variables.tf`, `node_count`).
+- External access is configured through `Service` type `LoadBalancer` (`k8s/service.yaml`).
+- Zero-downtime baseline is configured:
+  - `Deployment` with `RollingUpdate` (`maxUnavailable: 0`, `maxSurge: 1`)
+  - `PodDisruptionBudget` (`k8s/pdb.yaml`, `maxUnavailable: 1`)
+  - `HorizontalPodAutoscaler` (`k8s/hpa.yaml`, min 2 / max 4)
+- Rolling update is validated with `kubectl rollout status`.
+- Service checks are validated:
+  - burst requests to `/api/bulletins` without `5xx`
+  - logs confirm traffic/health checks are served by both pods (`instance` differs).
+
+### Step 4 quick proof commands
+
+```bash
+kubectl get nodes -o wide
+kubectl get svc -n bulletin -o wide
+kubectl get pdb -n bulletin
+kubectl get hpa -n bulletin
+kubectl rollout status deploy/bulletin-app -n bulletin
+kubectl logs -n bulletin -l app=bulletin-app --since=10m | grep 'instance":"bulletin-app-'
+```
 
 ### Перед первым apply
 

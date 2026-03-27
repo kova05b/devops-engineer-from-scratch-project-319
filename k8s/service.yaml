@@ -4,7 +4,7 @@ metadata:
   name: bulletin-app
   namespace: bulletin
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app: bulletin-app
   ports:

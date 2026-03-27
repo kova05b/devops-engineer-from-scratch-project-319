@@ -56,7 +56,7 @@ variable "k8s_version" {
 variable "node_count" {
   description = "Количество воркер-нод"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "node_platform_id" {

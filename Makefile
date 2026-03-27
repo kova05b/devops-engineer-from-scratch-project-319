@@ -92,7 +92,6 @@ k8s-apply:
 k8s-secret-apply:
 	@test -n "$(SPRING_DATASOURCE_URL)" || (echo "SPRING_DATASOURCE_URL is required"; exit 1)
 	@test -n "$(SPRING_DATASOURCE_USERNAME)" || (echo "SPRING_DATASOURCE_USERNAME is required"; exit 1)
-	@test -n "$(SPRING_DATASOURCE_PASSWORD)" || (echo "SPRING_DATASOURCE_PASSWORD is required"; exit 1)
 	@test -n "$(STORAGE_S3_ACCESSKEY)" || (echo "STORAGE_S3_ACCESSKEY is required"; exit 1)
 	@test -n "$(STORAGE_S3_SECRETKEY)" || (echo "STORAGE_S3_SECRETKEY is required"; exit 1)
 	kubectl -n $(K8S_NAMESPACE) create secret generic bulletin-secret \
@@ -119,4 +118,18 @@ k8s-logs:
 k8s-port-forward:
 	kubectl port-forward -n $(K8S_NAMESPACE) svc/bulletin-app $(K8S_LOCAL_PORT):80
 
-.PHONY: k8s-apply k8s-secret-apply k8s-delete k8s-status k8s-rollout k8s-logs k8s-port-forward
+k8s-external-ip:
+	kubectl get svc bulletin-app -n $(K8S_NAMESPACE) -o wide
+
+k8s-hpa:
+	kubectl get hpa -n $(K8S_NAMESPACE)
+
+k8s-pdb:
+	kubectl get pdb -n $(K8S_NAMESPACE)
+
+# Пример: make k8s-set-image IMAGE=ruslangilyazov/project-devops-deploy:0.0.2
+k8s-set-image:
+	@test -n "$(IMAGE)" || (echo "IMAGE is required"; exit 1)
+	kubectl -n $(K8S_NAMESPACE) set image deploy/bulletin-app app=$(IMAGE)
+
+.PHONY: k8s-apply k8s-secret-apply k8s-delete k8s-status k8s-rollout k8s-logs k8s-port-forward k8s-external-ip k8s-hpa k8s-pdb k8s-set-image
