@@ -122,12 +122,34 @@ resource "yandex_vpc_security_group" "postgres" {
     v4_cidr_blocks = [var.k8s_pod_cidr]
   }
 
+  # Пул соединений Odyssey (часто порт 6432); без правила nc/psql на 6432 даёт FAIL при открытом 5432.
+  ingress {
+    protocol          = "TCP"
+    description       = "Odyssey pooler from k8s"
+    port              = 6432
+    security_group_id = yandex_vpc_security_group.k8s.id
+  }
+
+  ingress {
+    protocol       = "TCP"
+    description    = "Odyssey pooler from k8s subnet CIDR"
+    port           = 6432
+    v4_cidr_blocks = [var.network_cidr]
+  }
+
+  ingress {
+    protocol       = "TCP"
+    description    = "Odyssey pooler from Kubernetes pod CIDR"
+    port           = 6432
+    v4_cidr_blocks = [var.k8s_pod_cidr]
+  }
+
   dynamic "ingress" {
-    for_each = var.postgres_allow_anywhere_ingress ? [1] : []
+    for_each = var.postgres_allow_anywhere_ingress ? [5432, 6432] : []
     content {
       protocol       = "TCP"
-      description    = "DEV: Postgres 5432 from anywhere (отключи в проде)"
-      port           = 5432
+      description    = "DEV: Postgres/Odyssey port ${ingress.value} from anywhere (отключи в проде)"
+      port           = ingress.value
       v4_cidr_blocks = ["0.0.0.0/0"]
     }
   }
