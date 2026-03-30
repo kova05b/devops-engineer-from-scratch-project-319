@@ -3,6 +3,7 @@
 [![Actions Status](https://github.com/RuslanGilyazov83/devops-engineer-from-scratch-project-319/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/RuslanGilyazov83/devops-engineer-from-scratch-project-319/actions)
 
 **Развёрнутое приложение (Ingress + ingress-nginx):** по умолчанию чарт создаёт **Ingress** с хостом `bulletin.local`, а сервис приложения — **ClusterIP**. Внешний **EXTERNAL-IP** выдаётся сервису контроллера `ingress-nginx-controller` в namespace `ingress-nginx`. Дальше: либо пропиши в `/etc/hosts` строку `<EXTERNAL-IP> bulletin.local`, либо проверяй через `curl -H "Host: bulletin.local" http://<EXTERNAL-IP>/api/bulletins?page=1&perPage=1`. Для сдачи зафиксируй в README свой URL или IP + хост.
+Проверка API через Ingress: `curl -H "Host: bulletin.local" "http://158.160.239.126/api/bulletins?page=1&perPage=1"`.
 
 Исходное приложение: [hexlet-components/project-devops-deploy](https://github.com/Hexlet-components/project-devops-deploy).
 
