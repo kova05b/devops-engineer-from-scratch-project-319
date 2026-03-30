@@ -12,9 +12,14 @@ replicaCount: 2
 
 revisionHistoryLimit: 3
 
+# Время ожидания готовности новых подов при RollingUpdate (JVM на маленьких нодах иногда не укладывается в дефолтные 600 с).
+progressDeadlineSeconds: 1200
+
+# По умолчанию без «лишнего» пода во время rollout: одновременно не больше replicas (важно для 2 нод / тесных лимитов).
+# Строгий zero-downtime с maxSurge:1 — в файле values-rolling-strict.yaml.
 rollingUpdate:
-  maxSurge: 1
-  maxUnavailable: 0
+  maxSurge: 0
+  maxUnavailable: 1
 
 resources:
   requests:
@@ -31,16 +36,18 @@ names:
   secret: bulletin-secret
   service: bulletin-app
 
+# С включённым Ingress внешний вход идёт через контроллер (LoadBalancer у ingress-nginx); приложение — ClusterIP.
 service:
-  type: LoadBalancer
+  type: ClusterIP
   port: 80
   targetPort: 8080
 
-# Ingress (опционально; по умолчанию доступ через LoadBalancer Service).
+# Ingress включён по умолчанию (приёмка: обязателен ресурс Ingress). Нужен ingress-controller с class `nginx` (см. README: ingress-nginx).
 ingress:
-  enabled: false
+  enabled: true
   className: nginx
-  annotations: {}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
   host: bulletin.local
   path: /
   pathType: Prefix
@@ -70,22 +77,31 @@ topologySpread:
   whenUnsatisfiable: ScheduleAnyway
 
 probes:
+  # Пока startupProbe не успешен, readiness/liveness не считаются — удобно для долгого старта Spring Boot на слабых нодах.
+  startup:
+    enabled: true
+    path: /actuator/health/liveness
+    portName: mgmt
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 36
   readiness:
     path: /actuator/health/readiness
     portName: mgmt
-    initialDelaySeconds: 20
+    initialDelaySeconds: 5
     periodSeconds: 10
     timeoutSeconds: 3
     failureThreshold: 6
   liveness:
     path: /actuator/health/liveness
     portName: mgmt
-    initialDelaySeconds: 30
+    initialDelaySeconds: 0
     periodSeconds: 15
     timeoutSeconds: 3
     failureThreshold: 4
 
-# Secret: либо создаём из chart, либо используем уже существующий (ExternalSecrets / kubectl).
+# Secret: либо создаём из chart, либо уже существующий (ExternalSecret / kubectl).
+# Режим Lockbox: lockbox.enabled=true, secret.create=false, secret.existingSecretName = lockbox.targetSecretName.
 secret:
   create: true
   existingSecretName: ""
@@ -95,6 +111,19 @@ secret:
     SPRING_DATASOURCE_PASSWORD: ""
     STORAGE_S3_ACCESSKEY: ""
     STORAGE_S3_SECRETKEY: ""
+
+# External Secrets Operator + Yandex Lockbox (см. README). Ключ SA — только в Kubernetes Secret, не в git.
+lockbox:
+  enabled: false
+  # Managed K8s / часть чартов ESO отдают CRD только как v1beta1 — тогда v1 даёт «resource mapping not found».
+  externalSecretsApiVersion: external-secrets.io/v1beta1
+  secretId: ""
+  refreshInterval: 1m
+  storeName: yandex-lockbox
+  externalSecretName: bulletin-from-lockbox
+  targetSecretName: bulletin-lockbox
+  authSecretName: yc-lockbox-authorized-key
+  authSecretKey: authorized-key
 
 pdb:
   enabled: true

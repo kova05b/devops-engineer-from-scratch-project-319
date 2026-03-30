@@ -1,0 +1,14 @@
+# Подключение приложения к секрету из Yandex Lockbox через ExternalSecret.
+# ID секрета Lockbox не является паролем и удобно передавать через:
+#   --set lockbox.secretId="$(cd terraform && terraform output -raw lockbox_secret_id)"
+#
+# Перед helm: установите ESO (make k8s-eso-install) и Secret с authorized key (make k8s-eso-auth-secret-apply).
+
+lockbox:
+  enabled: true
+  # При ошибке Helm про «no matches for kind ... external-secrets.io/v1» оставьте v1beta1 (наследуется из values.yaml)
+  # или выставьте externalSecretsApiVersion: external-secrets.io/v1, если CRD в кластере только v1.
+
+secret:
+  create: false
+  existingSecretName: bulletin-lockbox

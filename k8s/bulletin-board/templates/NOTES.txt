@@ -1,9 +1,11 @@
 1. Проверка статуса:
    kubectl get pods,svc -n {{ .Release.Namespace }} -l app={{ .Values.names.deployment }}
-
-2. Внешний IP (LoadBalancer):
-   kubectl get svc {{ .Values.names.service }} -n {{ .Release.Namespace }}
+   kubectl get ingress -n {{ .Release.Namespace }}
 
 {{- if .Values.ingress.enabled }}
-3. Ingress host: {{ .Values.ingress.host | quote }}
+2. Внешний доступ через Ingress (host {{ .Values.ingress.host | quote }}): возьми EXTERNAL-IP сервиса ingress-nginx-controller и добавь запись в /etc/hosts или переопредели ingress.host при helm upgrade.
+   kubectl get svc -n ingress-nginx
+{{- else }}
+2. Внешний IP сервиса приложения:
+   kubectl get svc {{ .Values.names.service }} -n {{ .Release.Namespace }}
 {{- end }}

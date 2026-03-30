@@ -14,9 +14,9 @@ secret:
     STORAGE_S3_ACCESSKEY: ""
     STORAGE_S3_SECRETKEY: ""
 
-# Включи Ingress и TLS, когда в кластере есть ingress-controller и сертификат.
+# Ingress включён по умолчанию в values.yaml; для prod задай реальный host и при необходимости TLS.
 ingress:
-  enabled: false
+  enabled: true
   host: bulletin.example.com
   tls:
     enabled: false

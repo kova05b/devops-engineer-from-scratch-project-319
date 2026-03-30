@@ -47,6 +47,8 @@ terraform/crash.*.log
 
 # Local secrets for k8s deploy
 .env.local-k8s
+eso-authorized-key.json
+eso-yc-key.json
 
 # Local Prometheus agent config with API key
 prom-agent-values.yaml

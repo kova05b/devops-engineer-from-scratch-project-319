@@ -1,5 +1,9 @@
 # Project DevOps Deploy
 
+[![Actions Status](https://github.com/RuslanGilyazov83/devops-engineer-from-scratch-project-319/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/RuslanGilyazov83/devops-engineer-from-scratch-project-319/actions)
+
+**Развёрнутое приложение (Ingress + ingress-nginx):** по умолчанию чарт создаёт **Ingress** с хостом `bulletin.local`, а сервис приложения — **ClusterIP**. Внешний **EXTERNAL-IP** выдаётся сервису контроллера `ingress-nginx-controller` в namespace `ingress-nginx`. Дальше: либо пропиши в `/etc/hosts` строку `<EXTERNAL-IP> bulletin.local`, либо проверяй через `curl -H "Host: bulletin.local" http://<EXTERNAL-IP>/api/bulletins?page=1&perPage=1`. Для сдачи зафиксируй в README свой URL или IP + хост.
+
 Исходное приложение: [hexlet-components/project-devops-deploy](https://github.com/Hexlet-components/project-devops-deploy).
 
 ## Состав проекта
@@ -12,10 +16,10 @@
 
 ## Требования
 
-- Docker
+- Docker и доступ к **реестру образов** (например `docker login` для Docker Hub перед `docker push`)
 - kubectl
 - Terraform >= 1.6
-- Yandex Cloud CLI (`yc`)
+- Yandex Cloud: **CLI `yc`** (часто с `yc iam create-token`) **или** аутентификация провайдера через **ключ сервисного аккаунта** (JSON), см. [документацию провайдера](https://registry.terraform.io/providers/yandex-cloud/yandex/latest/docs)
 - Helm
 - JDK 21 (для локальной сборки приложения)
 - Node.js 20+ (для локальной фронтенд-разработки)
@@ -87,7 +91,8 @@ cd terraform && terraform output
 - Managed Kubernetes (cluster + node group)
 - Managed PostgreSQL
 - Object Storage bucket
-- Lockbox secret
+- Lockbox secret (все чувствительные ключи приложения в payload)
+- Сервисный аккаунт для External Secrets Operator с ролью `lockbox.payloadViewer` на этот секрет и authorized key (JSON) в Terraform output (sensitive)
 - Remote state backend в Object Storage
 
 ## Kubernetes: деплой приложения
@@ -100,6 +105,34 @@ make k8s-rollout
 make k8s-status
 ```
 
+### Ingress и ingress-nginx (приёмка: обязателен Ingress)
+
+Чарт по умолчанию включает ресурс **Ingress** (`ingress.className: nginx`) и ожидает в кластере контроллер с тем же IngressClass. Рекомендуемый вариант — официальный чарт **ingress-nginx**.
+
+**Порядок действий (один раз на кластер + выкат приложения):**
+
+1. Убедись, что `kubectl` смотрит на нужный контекст Managed Kubernetes (`kubectl config current-context`).
+2. Установи контроллер:  
+   `make k8s-ingress-nginx-install`  
+   (добавляет репозиторий Helm, ставит релиз `ingress-nginx` в namespace `ingress-nginx`, сервис контроллера — **LoadBalancer** с внешним IP в Yandex Cloud).
+3. Дождись адреса:  
+   `make k8s-ingress-controller-ip`  
+   или `kubectl get svc -n ingress-nginx ingress-nginx-controller -o wide` — колонка **EXTERNAL-IP**.
+4. Выкати приложение (создастся Ingress на хост из `values.yaml`, по умолчанию `bulletin.local`):  
+   `make k8s-apply` → `make k8s-rollout`.
+5. Проверь Ingress:  
+   `kubectl get ingress -n bulletin`.
+6. С хоста, с которого идёт проверка, либо добавь в **`/etc/hosts`** (Linux/macOS) или **`C:\Windows\System32\drivers\etc\hosts`** строку  
+   `<EXTERNAL-IP> bulletin.local`,  
+   либо вызови API без правки hosts:  
+   `curl -sS -o /dev/null -w "%{http_code}\n" -H "Host: bulletin.local" "http://<EXTERNAL-IP>/api/bulletins?page=1&perPage=1"`  
+   (ожидается `200`).
+7. Для своего домена (prod): переопредели при установке Helm, например  
+   `--set ingress.host=app.example.com`  
+   и при необходимости включи TLS в `values.yaml` / `values-prod.yaml` (`ingress.tls` + Secret с сертификатом).
+
+**Отключить Ingress и снова открыть приложение напрямую через LoadBalancer у сервиса** (не для сценария «обязателен Ingress»): в Helm задай `ingress.enabled=false` и `service.type=LoadBalancer`.
+
 ### Секреты (локально, без хранения в git)
 
 ```bash
@@ -109,6 +142,51 @@ source .env.local-k8s
 set +a
 make k8s-secret-apply
 ```
+
+### Yandex Lockbox и External Secrets Operator
+
+Цель: чувствительные данные только в [Lockbox](https://yandex.cloud/ru/docs/lockbox/); в Git — только манифесты без значений. Синхронизация в кластер — [External Secrets Operator](https://external-secrets.io/latest/) и провайдер [Yandex Lockbox](https://external-secrets.io/latest/provider/yandex-lockbox/).
+
+**ID секрета Lockbox** (после `terraform apply`):
+
+```bash
+cd terraform && terraform output lockbox_secret_id
+```
+
+**Инфраструктура (Terraform):** секрет `yandex_lockbox_secret.app` и его версия с полями `SPRING_DATASOURCE_*`, `STORAGE_S3_*` задаются в `terraform/lockbox.tf`. Отдельный SA `eso_lockbox` и привязка `lockbox.payloadViewer` — в `terraform/lockbox_eso.tf`. Authorized key для API (sensitive):
+
+```bash
+cd terraform && terraform output -raw eso_lockbox_authorized_key_json > ../eso-authorized-key.json
+```
+
+Файл `eso-authorized-key.json` в `.gitignore`. Если аутентификация с ключом из Terraform не проходит (известны нюансы с переносами строк в `private_key`), создайте ключ через CLI: `yc iam key create --service-account-id "$(terraform output -raw eso_lockbox_service_account_id)" -o eso-authorized-key.json`.
+
+**Кластер:**
+
+1. Установить оператор: `make k8s-eso-install` (чарт `external-secrets`, CRD).
+2. Положить ключ в namespace приложения: `make k8s-eso-auth-secret-apply` (ожидается `eso-authorized-key.json` в корне репозитория).
+3. Выкатить приложение с Lockbox: задать `LOCKBOX_SECRET_ID` и выполнить `make k8s-apply-lockbox`.
+
+Пример с подстановкой ID из Terraform:
+
+```bash
+export LOCKBOX_SECRET_ID="$(cd terraform && terraform output -raw lockbox_secret_id)"
+make k8s-apply-lockbox
+```
+
+Helm при этом использует `k8s/bulletin-board/values-lockbox.yaml`: `secret.create: false`, `secret.existingSecretName: bulletin-lockbox`, а также `k8s/bulletin-board/templates/lockbox-external-secrets.yaml` (`SecretStore` + `ExternalSecret`). Интервал опроса Lockbox — `lockbox.refreshInterval` (по умолчанию `1m`). Версия API CRD задаётся `lockbox.externalSecretsApiVersion` (по умолчанию `external-secrets.io/v1beta1`; если в кластере доступен только `v1`, переопределите на `external-secrets.io/v1`).
+
+**Ротация значения в Lockbox (проверка на стенде):**
+
+1. Добавьте новую **версию** секрета с обновлённым payload (консоль Yandex Cloud, `yc lockbox secret add-version` или изменение `yandex_lockbox_secret_version` в Terraform с последующим `terraform apply`).
+2. Дождитесь следующего цикла `refreshInterval` или уменьшите интервал в values и выполните `helm upgrade`.
+3. Убедитесь, что объект Kubernetes Secret обновился:  
+   `kubectl get secret bulletin-lockbox -n bulletin -o jsonpath='{.data.SPRING_DATASOURCE_PASSWORD}' | base64 -d` (подставьте нужный ключ).
+4. Spring Boot не подхватывает новые переменные окружения без перезапуска процесса. Для подтверждения нового пароля БД без простоя сервиса выполните rolling-перезапуск:  
+   `kubectl rollout restart deployment/bulletin-app -n bulletin`  
+   при `maxUnavailable: 0` в Deployment запросы обрабатываются оставшимися подами.
+
+Так фиксируется цепочка: Lockbox → ESO обновляет Secret → при необходимости контролируемый rollout подов.
 
 ## Масштабирование, балансировка, обновления
 
@@ -124,10 +202,11 @@ kubectl get nodes -o wide
 
 ### Балансировка и устойчивость
 
-- `Service` типа `LoadBalancer`
+- Внешний HTTP-трафик: **`Ingress`** → сервис приложения; контроллер **ingress-nginx** (см. раздел выше) публикуется как `LoadBalancer` с **EXTERNAL-IP**.
+- `Service` приложения по умолчанию **`ClusterIP`** (порт 80 → 8080 в поде).
 - `PodDisruptionBudget` (`k8s/bulletin-board/templates/pdb.yaml`)
 - `HorizontalPodAutoscaler` (`k8s/bulletin-board/templates/hpa.yaml`)
-- `Deployment` c `RollingUpdate` (`maxUnavailable: 0`, `maxSurge: 1`)
+- `Deployment` c `RollingUpdate` (по умолчанию `maxSurge: 0`, `maxUnavailable: 1` — не требует третьего пода на двух нодах; строгий вариант — `-f k8s/bulletin-board/values-rolling-strict.yaml`)
 
 Проверка:
 
@@ -146,12 +225,13 @@ make k8s-rollout
 kubectl get pods -n bulletin -l app=bulletin-app -o wide
 ```
 
-Проверка без `5xx` (подставь внешний IP сервиса):
+Проверка без `5xx` (подставь **EXTERNAL-IP ingress-nginx** и хост из Ingress, по умолчанию `bulletin.local`):
 
 ```bash
-EXT_IP=<EXTERNAL_IP>
+EXT_IP=<INGRESS_CONTROLLER_EXTERNAL_IP>
+INGRESS_HOST=bulletin.local
 for i in $(seq 1 30); do
-  code=$(curl -s -o /dev/null -w "%{http_code}" "http://$EXT_IP/api/bulletins?page=1&perPage=1")
+  code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: $INGRESS_HOST" "http://$EXT_IP/api/bulletins?page=1&perPage=1")
   echo "$i -> $code"
 done
 ```
@@ -216,14 +296,14 @@ sum(kube_pod_container_status_restarts_total{namespace="bulletin"})
 make helm-repo-add
 ```
 
-Подключает `ingress-nginx` и `external-secrets` (сами чарты в этом проекте не ставятся — только при необходимости Ingress / External Secrets).
+Подключает репозитории `ingress-nginx` и `external-secrets`. Контроллер Ingress ставится целевой командой `make k8s-ingress-nginx-install` (см. раздел «Ingress и ingress-nginx»).
 
 ### Структура чарта
 
 - `k8s/bulletin-board/Chart.yaml`
 - `k8s/bulletin-board/values.yaml` — базовые значения
 - `k8s/bulletin-board/values-dev.yaml`, `values-prod.yaml` — примеры окружений
-- `k8s/bulletin-board/templates/` — Deployment, Service, ConfigMap, Secret, PDB, HPA, Ingress (опционально)
+- `k8s/bulletin-board/templates/` — Deployment, Service (**ClusterIP** по умолчанию), ConfigMap, Secret, PDB, HPA, **Ingress** (включён по умолчанию, нужен ingress-nginx)
 
 ### Переопределение values (порядок слабее → сильнее)
 
@@ -269,9 +349,9 @@ Workflow [`.github/workflows/helm-deploy.yml`](./.github/workflows/helm-deploy.y
 - [Yandex Monitoring](https://cloud.yandex.ru/docs/monitoring)
 - [Managed Service for Prometheus](https://yandex.cloud/ru/services/managed-prometheus)
 - [Cloud Logging](https://yandex.cloud/ru/docs/logging/)
-### Hexlet tests and linter status:
+### Hexlet tests and linter status
 
-[![Actions Status](https://github.com/RuslanGilyazov83/devops-engineer-from-scratch-project-319/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/RuslanGilyazov83/devops-engineer-from-scratch-project-319/actions)
+Статус CI см. бейдж в начале файла.
 
 # Project DevOps Deploy
 
@@ -447,12 +527,12 @@ Helm-чарт: [`k8s/bulletin-board/`](./k8s/bulletin-board) (`templates/`, `val
 В репозитории уже добавлено:
 
 - масштаб нод в Terraform (`terraform/variables.tf`: `node_count = 2`)
-- `Service` типа `LoadBalancer` для внешнего доступа
+- Внешний доступ через **Ingress** и контроллер **ingress-nginx** (`make k8s-ingress-nginx-install`); сервис приложения — **ClusterIP**
 - `PodDisruptionBudget` (`k8s/bulletin-board/templates/pdb.yaml`)
 - `HorizontalPodAutoscaler` (`k8s/bulletin-board/templates/hpa.yaml`, min=2, max=4)
-- `Deployment` с `replicas: 2` и `RollingUpdate` (`maxUnavailable: 0`) для релизов без простоя
+- `Deployment` с `replicas: 2` и `RollingUpdate` (базово `maxSurge: 0`, `maxUnavailable: 1`; при запасе ресурсов — `values-rolling-strict.yaml`: `maxSurge: 1`, `maxUnavailable: 0`)
 
-Если приложение уходит в `CrashLoopBackOff`, часто причина в том, что `bulletin-secret` задаёт `SPRING_DATASOURCE_*` под PostgreSQL и переопределяет `ConfigMap`. Ниже — команды, чтобы пересоздать `bulletin-secret` под H2 (без внешней БД) и стабилизировать rollout.
+Если приложение уходит в `CrashLoopBackOff` или Deployment не успевает за **progress deadline**, сначала смотри события и логи: `make k8s-diagnose`. Частая причина — Secret с реальными `SPRING_DATASOURCE_*` под PostgreSQL, который перекрывает H2 из ConfigMap (переменные из `secretRef` идут после `configMapRef` и перезаписывают их). В чарте пустые поля `secret.stringData` **не попадают** в Secret, чтобы дефолтный dev (H2) не ломался. Если ты вручную создавал `bulletin-secret` со старыми значениями — пересоздай Secret под нужный профиль или удали лишние ключи.
 
 ### 1) Масштабировать кластер до 2+ нод
 
@@ -481,7 +561,7 @@ make k8s-hpa
 make k8s-external-ip
 ```
 
-Когда у `Service` появится `EXTERNAL-IP`, приложение доступно извне по `http://EXTERNAL-IP/`.
+Когда у сервиса **ingress-nginx-controller** появится `EXTERNAL-IP`, приложение доступно по HTTP с заголовком `Host`, совпадающим с `ingress.host` (по умолчанию `bulletin.local`), либо после записи в `/etc/hosts`: `http://bulletin.local/` (см. раздел «Ingress и ingress-nginx» в начале README).
 
 ### 3) Проверить rolling update новой версии образа
 
@@ -495,7 +575,7 @@ kubectl get pods -n bulletin -o wide
 ### 4) Проверить трафик и отсутствие 5xx
 
 ```bash
-for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code}\n" http://EXTERNAL-IP/api/bulletins; done
+for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code}\n" -H "Host: bulletin.local" "http://EXTERNAL-IP/api/bulletins"; done
 ```
 
 Ожидаемо: коды `200`/`304` без `5xx` в серии запросов.
@@ -503,9 +583,9 @@ for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code}\n" http://EXTERNA
 ### Итог по масштабированию и HA
 
 - Worker node group is scaled to 2+ nodes via Terraform (`terraform/variables.tf`, `node_count`).
-- External access is configured through `Service` type `LoadBalancer` (chart template `service.yaml`).
+- External access uses **Ingress** plus **ingress-nginx** (LoadBalancer on the controller service); the app `Service` defaults to **ClusterIP** (`service.yaml`, `ingress.yaml`).
 - Zero-downtime baseline is configured:
-  - `Deployment` with `RollingUpdate` (`maxUnavailable: 0`, `maxSurge: 1`)
+  - `Deployment` with `RollingUpdate` (default `maxSurge: 0`, `maxUnavailable: 1`; optional `values-rolling-strict.yaml` for `maxSurge: 1`, `maxUnavailable: 0`)
   - `PodDisruptionBudget` (`k8s/bulletin-board/templates/pdb.yaml`, `maxUnavailable: 1`)
   - `HorizontalPodAutoscaler` (`k8s/bulletin-board/templates/hpa.yaml`, min 2 / max 4)
 - Rolling update is validated with `kubectl rollout status`.

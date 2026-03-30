@@ -9,6 +9,7 @@ metadata:
 spec:
   replicas: {{ .Values.replicaCount }}
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -53,24 +54,17 @@ spec:
             - secretRef:
                 name: {{ if .Values.secret.existingSecretName }}{{ .Values.secret.existingSecretName }}{{ else }}{{ .Values.names.secret }}{{ end }}
             {{- end }}
-          env:
-            - name: SPRING_DATASOURCE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ .Values.names.configMap }}
-                  key: SPRING_DATASOURCE_URL
-            - name: SPRING_DATASOURCE_USERNAME
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ .Values.names.configMap }}
-                  key: SPRING_DATASOURCE_USERNAME
-            - name: SPRING_DATASOURCE_PASSWORD
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ .Values.names.configMap }}
-                  key: SPRING_DATASOURCE_PASSWORD
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.startup.path | quote }}
+              port: {{ .Values.probes.startup.portName }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.readiness.path | quote }}

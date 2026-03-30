@@ -122,6 +122,7 @@ k8s-diagnose:
 k8s-remove-legacy-app:
 	kubectl delete pdb bulletin-app -n $(K8S_NAMESPACE) --ignore-not-found
 	kubectl delete hpa bulletin-app -n $(K8S_NAMESPACE) --ignore-not-found
+	kubectl delete ingress bulletin-app -n $(K8S_NAMESPACE) --ignore-not-found
 	kubectl delete deploy bulletin-app -n $(K8S_NAMESPACE) --ignore-not-found
 	kubectl delete svc bulletin-app -n $(K8S_NAMESPACE) --ignore-not-found
 	kubectl delete cm bulletin-config -n $(K8S_NAMESPACE) --ignore-not-found
@@ -139,10 +140,57 @@ helm-history:
 	helm history $(HELM_RELEASE) -n $(K8S_NAMESPACE)
 
 # Репозитории чартов (ingress-nginx, external-secrets) — по необходимости.
+# Версия чарта ESO (пин для воспроизводимости; см. https://github.com/external-secrets/external-secrets/releases )
+EXTERNAL_SECRETS_CHART_VERSION ?= 0.14.2
+# Чарт ingress-nginx (пин; см. https://github.com/kubernetes/ingress-nginx/releases )
+INGRESS_NGINX_CHART_VERSION ?= 4.12.1
+INGRESS_NGINX_NS ?= ingress-nginx
+
 helm-repo-add:
 	helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 	helm repo add external-secrets https://charts.external-secrets.io
 	helm repo update
+
+# Ingress NGINX controller (один раз на кластер; в Yandex MKS по умолчанию Service контроллера — LoadBalancer с EXTERNAL-IP).
+k8s-ingress-nginx-install: helm-repo-add
+	helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+		-n $(INGRESS_NGINX_NS) --create-namespace \
+		--version $(INGRESS_NGINX_CHART_VERSION) \
+		--set controller.service.type=LoadBalancer \
+		--wait --timeout 15m
+
+k8s-ingress-controller-ip:
+	@echo "Ожидаемый сервис контроллера: ingress-nginx-controller в namespace $(INGRESS_NGINX_NS)"
+	kubectl get svc -n $(INGRESS_NGINX_NS) -o wide
+
+# External Secrets Operator (кластерный компонент; один раз на кластер).
+k8s-eso-install: helm-repo-add
+	helm upgrade --install external-secrets external-secrets/external-secrets \
+		-n external-secrets --create-namespace \
+		--version $(EXTERNAL_SECRETS_CHART_VERSION) \
+		--set installCRDs=true \
+		--wait --timeout 10m
+
+# JSON authorized key SA для Lockbox (не коммитить). Создать файл:
+#   cd terraform && terraform output -raw eso_lockbox_authorized_key_json > ../eso-authorized-key.json
+# Альтернатива: yc iam key create --service-account-id "$(terraform output -raw eso_lockbox_service_account_id)" -o eso-authorized-key.json
+ESO_KEY_FILE ?= eso-authorized-key.json
+
+k8s-eso-auth-secret-apply:
+	@test -f "$(ESO_KEY_FILE)" || (echo "Missing $(ESO_KEY_FILE). See Makefile comment above k8s-eso-auth-secret-apply."; exit 1)
+	kubectl create secret generic yc-lockbox-authorized-key -n $(K8S_NAMESPACE) \
+		--from-file=authorized-key=$(ESO_KEY_FILE) \
+		--dry-run=client -o yaml | kubectl apply -f -
+
+# Выкат приложения с Lockbox + ExternalSecret (LOCKBOX_SECRET_ID обязателен).
+k8s-apply-lockbox:
+	@test -n "$(LOCKBOX_SECRET_ID)" || (echo "LOCKBOX_SECRET_ID is required (cd terraform && terraform output -raw lockbox_secret_id)"; exit 1)
+	helm upgrade --install $(HELM_RELEASE) $(HELM_CHART) \
+		-n $(K8S_NAMESPACE) --create-namespace \
+		--wait --timeout $(HELM_TIMEOUT) \
+		-f $(HELM_CHART)/values.yaml \
+		-f $(HELM_CHART)/values-lockbox.yaml \
+		--set lockbox.secretId="$(LOCKBOX_SECRET_ID)"
 
 k8s-secret-apply:
 	@test -n "$(SPRING_DATASOURCE_URL)" || (echo "SPRING_DATASOURCE_URL is required"; exit 1)
@@ -173,7 +221,11 @@ k8s-port-forward:
 	kubectl port-forward -n $(K8S_NAMESPACE) svc/bulletin-app $(K8S_LOCAL_PORT):80
 
 k8s-external-ip:
+	@echo "Сервис приложения (при ingress по умолчанию — ClusterIP, без внешнего IP):"
 	kubectl get svc bulletin-app -n $(K8S_NAMESPACE) -o wide
+	@echo ""
+	@echo "Внешний IP для HTTP — у контроллера ingress-nginx (см. make k8s-ingress-controller-ip):"
+	kubectl get svc -n $(INGRESS_NGINX_NS) -l app.kubernetes.io/component=controller -o wide 2>/dev/null || true
 
 k8s-hpa:
 	kubectl get hpa -n $(K8S_NAMESPACE)
@@ -198,4 +250,6 @@ k8s-logs-5xx:
 	kubectl logs -n $(K8S_NAMESPACE) -l $(K8S_APP_LABEL) --since=30m | grep -E '"status":5[0-9]{2}| 5[0-9]{2} ' || true
 
 .PHONY: k8s-apply k8s-secret-apply k8s-delete k8s-status k8s-rollout k8s-logs k8s-port-forward k8s-external-ip k8s-hpa k8s-pdb k8s-set-image k8s-restarts k8s-prom-sample k8s-logs-5xx
+.PHONY: k8s-ingress-nginx-install k8s-ingress-controller-ip
 .PHONY: helm-lint helm-template helm-upgrade helm-upgrade-nowait helm-uninstall helm-rollback helm-history helm-repo-add k8s-remove-legacy-app k8s-diagnose
+.PHONY: k8s-eso-install k8s-eso-auth-secret-apply k8s-apply-lockbox
