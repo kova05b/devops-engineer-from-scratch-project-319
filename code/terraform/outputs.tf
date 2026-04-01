@@ -31,8 +31,8 @@ output "postgres_fqdn" {
 }
 
 output "postgres_connection_string" {
-  value     = "jdbc:postgresql://${yandex_mdb_postgresql_cluster.main.host[0].fqdn}:6432/${var.pg_db_name}?prepareThreshold=0"
   sensitive = false
+  value     = "jdbc:postgresql://${yandex_mdb_postgresql_cluster.main.host[0].fqdn}:6432/${var.pg_db_name}?prepareThreshold=0"
 }
 
 output "app_bucket_name" {
@@ -40,13 +40,13 @@ output "app_bucket_name" {
 }
 
 output "app_s3_access_key" {
-  value     = yandex_iam_service_account_static_access_key.app_bucket.access_key
   sensitive = true
+  value     = yandex_iam_service_account_static_access_key.app_bucket.access_key
 }
 
 output "app_s3_secret_key" {
-  value     = yandex_iam_service_account_static_access_key.app_bucket.secret_key
   sensitive = true
+  value     = yandex_iam_service_account_static_access_key.app_bucket.secret_key
 }
 
 output "lockbox_secret_id" {
@@ -54,16 +54,16 @@ output "lockbox_secret_id" {
 }
 
 output "eso_lockbox_service_account_id" {
-  value       = yandex_iam_service_account.eso_lockbox.id
   description = "ID SA для ESO (Lockbox); authorized key — см. eso_lockbox_authorized_key_json"
+  value       = yandex_iam_service_account.eso_lockbox.id
 }
 
 # JSON для kubectl create secret ... --from-file=authorized-key=...
 # Не коммитьте и не логируйте: terraform output -raw eso_lockbox_authorized_key_json > eso-key.json
 output "eso_lockbox_authorized_key_json" {
-  value       = yandex_iam_service_account_key.eso_lockbox.private_key
-  sensitive   = true
   description = "Authorized key (JSON) для SecretStore yandexlockbox"
+  sensitive   = true
+  value       = yandex_iam_service_account_key.eso_lockbox.private_key
 }
 
 # kubeconfig как output — удобно для быстрого старта.

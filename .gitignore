@@ -40,6 +40,7 @@ out/
 # Terraform
 terraform/.terraform/
 terraform/.terraform.lock.hcl
+code/terraform/.terraform/
 terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/crash.log

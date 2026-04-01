@@ -7,10 +7,10 @@ resource "yandex_lockbox_secret" "app" {
 resource "yandex_lockbox_secret_version" "app" {
   secret_id = yandex_lockbox_secret.app.id
 
+  # Порт 6432 — Odyssey (пул); прямой 5432 с нод/подов в MKS часто недоступен.
+  # prepareThreshold=0 — совместимость JDBC с пулом (без server-side prepared statements).
   entries {
-    key = "SPRING_DATASOURCE_URL"
-    # Порт 6432 — Odyssey (пул); прямой 5432 с нод/подов в MKS часто недоступен.
-    # prepareThreshold=0 — совместимость JDBC с пулом (без server-side prepared statements).
+    key        = "SPRING_DATASOURCE_URL"
     text_value = "jdbc:postgresql://${yandex_mdb_postgresql_cluster.main.host[0].fqdn}:6432/${var.pg_db_name}?prepareThreshold=0"
   }
 
