@@ -1,0 +1,23 @@
+# Пример: prod-профиль и внешняя PostgreSQL (подставь host/пароль через CI или --set).
+config:
+  SPRING_PROFILES_ACTIVE: "prod"
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://REPLACE_HOST:5432/bulletins"
+  SPRING_DATASOURCE_USERNAME: "bulletins"
+  SPRING_DATASOURCE_PASSWORD: ""
+
+secret:
+  create: true
+  stringData:
+    SPRING_DATASOURCE_URL: ""
+    SPRING_DATASOURCE_USERNAME: ""
+    SPRING_DATASOURCE_PASSWORD: ""
+    STORAGE_S3_ACCESSKEY: ""
+    STORAGE_S3_SECRETKEY: ""
+
+# Ingress включён по умолчанию в values.yaml; для prod задай реальный host и при необходимости TLS.
+ingress:
+  enabled: true
+  host: bulletin.example.com
+  tls:
+    enabled: false
+    secretName: bulletin-tls

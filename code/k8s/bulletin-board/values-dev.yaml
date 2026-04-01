@@ -1,0 +1,7 @@
+# Пример: dev / учебный стенд (H2, без внешней БД).
+config:
+  SPRING_PROFILES_ACTIVE: "dev"
+
+secret:
+  create: true
+  # Реальные ключи S3 подставляй через CI или --set-file, не коммить.

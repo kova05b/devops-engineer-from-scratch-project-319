@@ -1,0 +1,4 @@
+# https://helm.sh/docs/chart_best_practices/#the-helmignore-file
+.DS_Store
+.git
+*.tgz

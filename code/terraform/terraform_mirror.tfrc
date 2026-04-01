@@ -1,0 +1,11 @@
+# Зеркало реестра провайдеров (нужно, если registry.terraform.io недоступен из сети).
+# Подключается через TF_CLI_CONFIG_FILE — см. Makefile в корне репозитория.
+provider_installation {
+  network_mirror {
+    url     = "https://terraform-mirror.yandexcloud.net/"
+    include = ["registry.terraform.io/*/*"]
+  }
+  direct {
+    exclude = ["registry.terraform.io/*/*"]
+  }
+}

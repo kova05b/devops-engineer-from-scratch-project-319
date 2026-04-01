@@ -1,0 +1,136 @@
+# Базовые значения. Переопределения — через -f values-<env>.yaml и/или --set / --set-file.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ruslangilyazov/project-devops-deploy
+  tag: "0.0.1"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+revisionHistoryLimit: 3
+
+# Время ожидания готовности новых подов при RollingUpdate (JVM на маленьких нодах иногда не укладывается в дефолтные 600 с).
+progressDeadlineSeconds: 1200
+
+# По умолчанию без «лишнего» пода во время rollout: одновременно не больше replicas (важно для 2 нод / тесных лимитов).
+# Строгий zero-downtime с maxSurge:1 — в файле values-rolling-strict.yaml.
+rollingUpdate:
+  maxSurge: 0
+  maxUnavailable: 1
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "1024Mi"
+
+# Имена ресурсов (совместимость с прежними манифестами).
+names:
+  deployment: bulletin-app
+  configMap: bulletin-config
+  secret: bulletin-secret
+  service: bulletin-app
+
+# С включённым Ingress внешний вход идёт через контроллер (LoadBalancer у ingress-nginx); приложение — ClusterIP.
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# Ingress включён по умолчанию (приёмка: обязателен ресурс Ingress). Нужен ingress-controller с class `nginx` (см. README: ingress-nginx).
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "32m"
+  host: bulletin.local
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: false
+    secretName: ""
+
+config:
+  SPRING_PROFILES_ACTIVE: "dev"
+  MANAGEMENT_SERVER_PORT: "9090"
+  STORAGE_S3_BUCKET: "projectdevopsdeploy"
+  STORAGE_S3_REGION: "ru-central1"
+  STORAGE_S3_ENDPOINT: "https://storage.yandexcloud.net"
+  SPRING_DATASOURCE_URL: "jdbc:h2:mem:bulletins;DB_CLOSE_DELAY=-1;MODE=PostgreSQL"
+  SPRING_DATASOURCE_USERNAME: "sa"
+  SPRING_DATASOURCE_PASSWORD: ""
+
+prometheus:
+  scrape: true
+  port: "9090"
+  path: "/actuator/prometheus"
+
+topologySpread:
+  enabled: true
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
+probes:
+  # Пока startupProbe не успешен, readiness/liveness не считаются — удобно для долгого старта Spring Boot на слабых нодах.
+  startup:
+    enabled: true
+    path: /actuator/health/liveness
+    portName: mgmt
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 36
+  readiness:
+    path: /actuator/health/readiness
+    portName: mgmt
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 6
+  liveness:
+    path: /actuator/health/liveness
+    portName: mgmt
+    initialDelaySeconds: 0
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 4
+
+# Secret: либо создаём из chart, либо уже существующий (ExternalSecret / kubectl).
+# Режим Lockbox: lockbox.enabled=true, secret.create=false, secret.existingSecretName = lockbox.targetSecretName.
+secret:
+  create: true
+  existingSecretName: ""
+  stringData:
+    SPRING_DATASOURCE_URL: ""
+    SPRING_DATASOURCE_USERNAME: ""
+    SPRING_DATASOURCE_PASSWORD: ""
+    STORAGE_S3_ACCESSKEY: ""
+    STORAGE_S3_SECRETKEY: ""
+
+# External Secrets Operator + Yandex Lockbox (см. README). Ключ SA — только в Kubernetes Secret, не в git.
+lockbox:
+  enabled: false
+  # Managed K8s / часть чартов ESO отдают CRD только как v1beta1 — тогда v1 даёт «resource mapping not found».
+  externalSecretsApiVersion: external-secrets.io/v1beta1
+  secretId: ""
+  refreshInterval: 1m
+  storeName: yandex-lockbox
+  externalSecretName: bulletin-from-lockbox
+  targetSecretName: bulletin-lockbox
+  authSecretName: yc-lockbox-authorized-key
+  authSecretKey: authorized-key
+
+pdb:
+  enabled: true
+  maxUnavailable: 1
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 70
