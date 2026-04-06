@@ -4,16 +4,18 @@
 
 ## Развёрнутое приложение
 
-**URL:** http://158.160.239.126
+**External IP:** `158.160.239.126`  
+**Ingress host:** `bulletin.local`
 
 Проверка API:
 
 ```bash
-curl "http://158.160.239.126/api/bulletins?page=1&perPage=1"
+curl -H "Host: bulletin.local" "http://158.160.239.126/api/bulletins?page=1&perPage=1"
 ```
 
-> Ingress host: `bulletin.local` → внешний IP контроллера `ingress-nginx`.  
-> Если открываете в браузере — добавьте в `/etc/hosts`: `158.160.239.126 bulletin.local` и откройте `http://bulletin.local/`.
+> Чтобы открыть в браузере — добавьте в `/etc/hosts`:  
+> `158.160.239.126 bulletin.local`  
+> затем откройте `http://bulletin.local/`.
 
 ---
 
