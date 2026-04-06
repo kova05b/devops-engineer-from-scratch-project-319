@@ -113,7 +113,29 @@ make k8s-rollout
 Поды приложения аннотированы для Prometheus-скрейпа (`/actuator/prometheus`, порт 9090).  
 Логи — структурированный JSON в stdout (Cloud Logging / Yandex Monitoring).
 
-Быстрые проверки:
+### Дашборд — метрики кластера и приложения
+
+![Monitoring dashboard](docs/monitoring-dashboard.png)
+
+Панели: **RPS**, **Latency p95**, **HTTP 5xx rate**, **CPU usage**, **Memory working set**, **Pod restarts**, **up**, **running pods**.
+
+### Алерты и recording rules
+
+![Alerts and rules](docs/monitoring-alerts-rules.png)
+
+Файлы `alerts-step5.yml` и `rules-step5.yml` подключены в Yandex Managed Prometheus:
+
+| Правило | Тип | Статус |
+|---|---|---|
+| BulletinHigh5xxRate | Alerting | OK |
+| BulletinHighLatencyP95 | Alerting | OK |
+| BulletinPodRestartsGrowing | Alerting | OK |
+| app:http_requests_total:rate1m | Recording | OK |
+| app:http_5xx_total:rate1m | Recording | OK |
+| app:http_latency_p95 | Recording | OK |
+| app:pod_restarts_total | Recording | OK |
+
+Быстрые проверки через kubectl:
 
 ```bash
 make k8s-restarts
