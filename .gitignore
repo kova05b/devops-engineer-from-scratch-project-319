@@ -53,3 +53,14 @@ eso-yc-key.json
 
 # Local Prometheus agent config with API key
 prom-agent-values.yaml
+
+# Application source code (belongs in app repo, not DevOps repo)
+src/
+frontend/
+gradle/
+gradlew
+gradlew.bat
+build.gradle.kts
+settings.gradle.kts
+versions.properties
+public/
