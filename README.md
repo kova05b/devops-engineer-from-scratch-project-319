@@ -4,8 +4,19 @@
 
 ## Развёрнутое приложение
 
+Приложение развёрнуто как **один Docker-контейнер**, в котором живут и **frontend**, и **backend**:
+
+- UI: `http://bulletin.local/`
+- API: `http://bulletin.local/api/bulletins?page=1&perPage=1`
+
 **External IP:** `158.160.239.126`  
 **Ingress host:** `bulletin.local`
+
+Проверка UI:
+
+```bash
+curl -I -H "Host: bulletin.local" "http://158.160.239.126/"
+```
 
 Проверка API:
 
@@ -13,7 +24,9 @@
 curl -H "Host: bulletin.local" "http://158.160.239.126/api/bulletins?page=1&perPage=1"
 ```
 
-> Чтобы открыть в браузере — добавьте в `/etc/hosts`:  
+> `http://158.160.239.126/` без заголовка `Host` использовать не нужно: роутинг идёт через Ingress на хост `bulletin.local`.
+>
+> Чтобы открыть приложение в браузере — добавьте в `/etc/hosts`:  
 > `158.160.239.126 bulletin.local`  
 > затем откройте `http://bulletin.local/`.
 
@@ -28,7 +41,7 @@ code/
 terraform/     # Terraform — рабочая копия для локального деплоя
 k8s/           # Helm-чарт — рабочая копия для локального деплоя
 Makefile       # Команды для Terraform, Helm и kubectl
-Dockerfile     # Сборка образа приложения
+Dockerfile     # Multi-stage сборка: frontend -> Spring Boot JAR -> runtime image
 ```
 
 Исходный код приложения: [hexlet-components/project-devops-deploy](https://github.com/hexlet-components/project-devops-deploy).
