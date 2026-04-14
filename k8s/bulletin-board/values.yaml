@@ -5,7 +5,7 @@ fullnameOverride: ""
 
 image:
   repository: ruslangilyazov/project-devops-deploy
-  tag: "0.0.1"
+  tag: "0.0.3"
   pullPolicy: IfNotPresent
 
 replicaCount: 2
